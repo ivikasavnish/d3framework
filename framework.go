@@ -1,17 +1,20 @@
 package d3framework
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"google.golang.org/grpc"
 	"net"
+	"net/http"
+
 	"golang.org/x/net/websocket"
+	"google.golang.org/grpc"
 )
 
 // DataHandler is responsible for fetching and managing data
 type DataHandler interface {
 	FetchData(params map[string]string) (interface{}, error)
+	HandleWebSocketInput(conn *websocket.Conn) (map[string]string, error)
+	SendWebSocketResponse(conn *websocket.Conn, data interface{}) error
+	HandleTCPInput(conn net.Conn) (map[string]string, error)
 }
 
 // InputHandler provides default implementations for input handling
@@ -71,11 +74,31 @@ func (b *BaseDisplayHandler) Display(w http.ResponseWriter, data interface{}) {
 
 // Framework structure that binds the D3 components
 type Framework struct {
-	Data    DataHandler
-	Input   InputHandler
-	Output  OutputHandler
+	Data     DataHandler
+	Input    InputHandler
+	Output   OutputHandler
 	Delivery DeliveryHandler
 	Display  DisplayHandler
+}
+
+type InputHandler interface {
+	FetchData(params map[string]string) (interface{}, error)
+	HandleTCPInput(conn net.Conn) (map[string]string, error)
+	HandleHTTPInput(r *http.Request) (map[string]string, error)
+	HandleWebSocketInput(conn *websocket.Conn) (map[string]string, error)
+}
+
+type OutputHandler interface {
+	SendHTTPResponse(w http.ResponseWriter, data interface{})
+	SendTCPResponse(conn net.Conn, data interface{}) error
+	SendWebSocketResponse(conn *websocket.Conn, data interface{}) error
+}
+type DeliveryHandler interface {
+	ProcessData(data interface{}) (interface{}, error)
+}
+type DisplayHandler interface {
+	RenderData(data interface{}) (interface{}, error)
+	Display(w http.ResponseWriter, data interface{})
 }
 
 // HTTPServer handles HTTP-specific requests
@@ -94,6 +117,12 @@ func (f *Framework) GRPCServer(addr string, server *grpc.Server) {
 	}
 	fmt.Printf("Starting gRPC server on %s\n", addr)
 	server.Serve(listener)
+}
+func (f *Framework) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	params, _ := f.Input.HandleHTTPInput(r)
+	data, _ := f.Data.FetchData(params)
+	processedData, _ := f.Delivery.ProcessData(data)
+	f.Output.SendHTTPResponse(w, processedData)
 }
 
 // WebSocketServer handles WebSocket-specific connections

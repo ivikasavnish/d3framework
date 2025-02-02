@@ -1,18 +1,29 @@
 package main
 
 import (
-	"d3framework"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
-	"google.golang.org/grpc"
+
+	"github.com/ivikasavnish/d3framework"
 	"golang.org/x/net/websocket"
-	"context"
-	"log"
 )
 
 // CustomDataHandler handles data fetching
 type CustomDataHandler struct{}
+
+func (d *CustomDataHandler) SendWebSocketResponse(conn *websocket.Conn, data interface{}) error {
+	return websocket.Message.Send(conn, data)
+}
+
+func (d *CustomDataHandler) HandleWebSocketInput(conn *websocket.Conn) (map[string]string, error) {
+	var message string
+	if err := websocket.Message.Receive(conn, &message); err != nil {
+		return nil, err
+	}
+	return map[string]string{"message": message}, nil
+}
 
 func (d *CustomDataHandler) FetchData(params map[string]string) (interface{}, error) {
 	name := params["name"]
@@ -20,6 +31,16 @@ func (d *CustomDataHandler) FetchData(params map[string]string) (interface{}, er
 		name = "World"
 	}
 	return fmt.Sprintf("Hello, %s!", name), nil
+}
+
+func (d *CustomDataHandler) HandleTCPInput(conn net.Conn) (map[string]string, error) {
+	buffer := make([]byte, 1024)
+	n, err := conn.Read(buffer)
+	if err != nil {
+		return nil, err
+	}
+	params := map[string]string{"message": string(buffer[:n])}
+	return params, nil
 }
 
 // CustomInputHandler handles different types of inputs
@@ -127,9 +148,8 @@ func startWebSocketServer(framework *d3framework.Framework) {
 
 func main() {
 	framework := &d3framework.Framework{
-		Data:    &CustomDataHandler{},
-		Input:   &CustomInputHandler{},
-		Output:  &CustomOutputHandler{},
+		Data:     &CustomDataHandler{},
+		Output:   &CustomOutputHandler{},
 		Delivery: &CustomDeliveryHandler{},
 	}
 
